@@ -1,11 +1,14 @@
 import datetime
-
-from fastapi import FastAPI, HTTPException
+from dateutil.relativedelta import relativedelta
+from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel
+from starlette.requests import Request
+from starlette.responses import HTMLResponse, RedirectResponse
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
 app = FastAPI()
 
-
+security = HTTPBasic()
 
 @app.get("/")
 def read_root():
@@ -74,3 +77,71 @@ def get_event(date: str):
         return output_list
     else:
         raise HTTPException(status_code=404)
+
+
+@app.get("/start", response_class=HTMLResponse)
+def read_items():
+    return """
+    <html>
+        <h1>The unix epoch started at 1970-01-01</h1>
+    </html>
+    """
+
+
+@app.post("/check", response_class=HTMLResponse)
+def check(credentials: HTTPBasicCredentials = Depends(security)):
+    name = str(credentials.username)
+    birth_date = str(credentials.password)
+    try:
+        birth_date = datetime.datetime.strptime(birth_date, '%Y-%m-%d')
+    except ValueError:
+        raise HTTPException(status_code=401)
+    z = datetime.datetime.utcnow() - relativedelta(years=16)
+    if z < birth_date:
+        raise HTTPException(status_code=401)
+    today = datetime.date.today()
+    age = today.year - birth_date.year - ((today.month, today.day) < (birth_date.month, birth_date.day))
+    return f"""
+    <html>
+        <h1>Welcome {name}! You are {age}</h1>
+    </html>
+    """
+
+
+@app.get("/info")
+def get_info(request: Request, format: str = None):
+    if not format:
+        raise HTTPException(status_code=400)
+    x = request.headers.get('user-agent')
+    if format == 'json':
+        return  {"user_agent": x}
+    elif format == 'html':
+        html_content = f'<input type="text" id=user-agent name=agent value="{x}">'
+        return HTMLResponse(content=html_content, status_code=200)
+    else:
+        raise HTTPException(status_code=400)
+
+list_of_routes = set()
+
+@app.put("/save/{string}", status_code=200)
+def put_save(string: str):
+    list_of_routes.update([string])
+    return
+
+@app.get("/save/{string}", status_code=404)
+def get_save(request: Request, string: str):
+    if string in list_of_routes:
+        url = request.url_for("get_info")
+        return RedirectResponse(status_code=301, url=url)
+
+@app.delete("/save/{string}")
+def delete_save(string: str):
+    list_of_routes.remove(string)
+    return
+
+@app.post("/save/{string}", status_code=400)
+def post_save(string: str):
+    return
+
+
+
